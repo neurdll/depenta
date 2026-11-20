@@ -3,16 +3,17 @@ mod cli;
 mod graph;
 mod model;
 mod store;
+mod tui;
 
 fn main() {
-    match cli::run_from_args(std::env::args_os().skip(1)) {
-        Ok(true) => {
-            eprintln!("TUI workbench will be wired in ISS-005. Run `depenta help` for CLI usage.");
-        }
-        Ok(false) => {}
-        Err(err) => {
-            eprintln!("error: {err}");
-            std::process::exit(1);
-        }
+    let result = match cli::run_from_args(std::env::args_os().skip(1)) {
+        Ok(true) => tui::run(),
+        Ok(false) => Ok(()),
+        Err(err) => Err(err),
+    };
+
+    if let Err(err) = result {
+        eprintln!("error: {err}");
+        std::process::exit(1);
     }
 }
