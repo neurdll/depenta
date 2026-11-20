@@ -4,6 +4,16 @@ use ratatui::widgets::ListState;
 use crate::graph::TaskGraph;
 use crate::model::{Status, Task, TaskId, now_epoch_secs};
 use crate::store::TaskStore;
+use super::modals::{
+    AddField, AddModal, LinkModal, LinkRelation, ModalState, cycle_priority,
+};
+use super::tree::build_tree_rows;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Workbench,
+    Tree,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterMode {
@@ -62,10 +72,11 @@ pub struct NeighborEntry {
     pub id: TaskId,
 }
 
-/// Interactive state for the 2-pane TUI workbench.
+/// Interactive state for the TUI workbench, layered tree view, and modals.
 pub struct App {
     pub store: TaskStore,
     pub graph: TaskGraph,
+    pub view_mode: ViewMode,
     pub filter: FilterMode,
     pub focus: PaneFocus,
     pub searching: bool,
@@ -73,6 +84,9 @@ pub struct App {
     pub visible_ids: Vec<TaskId>,
     pub list_state: ListState,
     pub neighbor_index: usize,
+    pub tree_index: usize,
+    pub modal: Option<ModalState>,
+    pub pending_editor_task_id: Option<TaskId>,
     pub status_message: Option<String>,
     pub should_quit: bool,
 }
@@ -82,6 +96,7 @@ impl App {
         let mut app = Self {
             store,
             graph,
+            view_mode: ViewMode::Workbench,
             filter: FilterMode::All,
             focus: PaneFocus::TaskList,
             searching: false,
@@ -89,6 +104,9 @@ impl App {
             visible_ids: Vec::new(),
             list_state: ListState::default(),
             neighbor_index: 0,
+            tree_index: 0,
+            modal: None,
+            pending_editor_task_id: None,
             status_message: None,
             should_quit: false,
         };
@@ -126,19 +144,20 @@ impl App {
         if self.visible_ids.is_empty() {
             self.list_state.select(None);
             self.neighbor_index = 0;
-            return;
+        } else {
+            let new_idx = keep_id
+                .and_then(|id| self.visible_ids.iter().position(|v| v == &id))
+                .unwrap_or_else(|| {
+                    self.list_state
+                        .selected()
+                        .unwrap_or(0)
+                        .min(self.visible_ids.len() - 1)
+                });
+            self.list_state.select(Some(new_idx));
+            self.clamp_neighbor_index();
         }
 
-        let new_idx = keep_id
-            .and_then(|id| self.visible_ids.iter().position(|v| v == &id))
-            .unwrap_or_else(|| {
-                self.list_state
-                    .selected()
-                    .unwrap_or(0)
-                    .min(self.visible_ids.len() - 1)
-            });
-        self.list_state.select(Some(new_idx));
-        self.clamp_neighbor_index();
+        self.clamp_tree_index();
     }
 
     fn matches_filter(&self, task: &Task) -> bool {
@@ -172,6 +191,19 @@ impl App {
         self.selected_id().and_then(|id| self.graph.get(id))
     }
 
+    pub fn selected_tree_id(&self) -> Option<&TaskId> {
+        let rows = build_tree_rows(self).ok()?;
+        let row = rows.get(self.tree_index)?;
+        self.graph.get(&row.task_id).map(|t| &t.id)
+    }
+
+    pub fn active_selected_id(&self) -> Option<TaskId> {
+        match self.view_mode {
+            ViewMode::Workbench => self.selected_id().cloned(),
+            ViewMode::Tree => self.selected_tree_id().cloned(),
+        }
+    }
+
     /// Collects ordered neighborhood links (`Needs`, `Unlocks`, `Related`) for the selected task.
     pub fn selected_neighbors(&self) -> Vec<NeighborEntry> {
         let Some(id) = self.selected_id() else {
@@ -199,9 +231,49 @@ impl App {
         out
     }
 
+    pub fn link_candidates(&self, modal: &LinkModal) -> Vec<TaskId> {
+        let needle = modal.filter.trim().to_ascii_lowercase();
+        let source = self.graph.get(&modal.source_id);
+
+        let mut ids: Vec<TaskId> = self
+            .graph
+            .all_tasks()
+            .filter(|t| t.id != modal.source_id)
+            .filter(|t| {
+                if modal.adding {
+                    true
+                } else {
+                    match modal.relation {
+                        LinkRelation::DependsOn => {
+                            source.is_some_and(|s| s.depends_on.contains(&t.id))
+                        }
+                        LinkRelation::Blocks => t.depends_on.contains(&modal.source_id),
+                        LinkRelation::Related => {
+                            source.is_some_and(|s| s.related.contains(&t.id))
+                        }
+                    }
+                }
+            })
+            .filter(|t| {
+                needle.is_empty()
+                    || t.title.to_ascii_lowercase().contains(&needle)
+                    || t.id.as_str().contains(&needle)
+            })
+            .map(|t| t.id.clone())
+            .collect();
+
+        ids.sort();
+        ids
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
+            return;
+        }
+
+        if self.modal.is_some() {
+            self.handle_modal_key(key);
             return;
         }
 
@@ -212,7 +284,19 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
-            KeyCode::Char('/') => {
+            KeyCode::Tab => self.toggle_view_mode(),
+            KeyCode::Char('a') => {
+                self.modal = Some(ModalState::Add(AddModal::default()));
+                self.status_message = None;
+            }
+            KeyCode::Char('l') => self.open_link_modal(true),
+            KeyCode::Char('u') => self.open_link_modal(false),
+            KeyCode::Char('e') => {
+                if let Some(id) = self.active_selected_id() {
+                    self.pending_editor_task_id = Some(id);
+                }
+            }
+            KeyCode::Char('/') if self.view_mode == ViewMode::Workbench => {
                 self.searching = true;
                 self.status_message = None;
             }
@@ -224,15 +308,15 @@ impl App {
                 self.focus = PaneFocus::TaskList;
                 self.status_message = None;
             }
-            KeyCode::Char('f') => {
+            KeyCode::Char('f') if self.view_mode == ViewMode::Workbench => {
                 self.filter = self.filter.next();
                 self.refresh_visible(None);
                 self.status_message = Some(format!("Filter: {}", self.filter.label()));
             }
-            KeyCode::Char('h') | KeyCode::Left => {
+            KeyCode::Char('h') | KeyCode::Left if self.view_mode == ViewMode::Workbench => {
                 self.focus = PaneFocus::TaskList;
             }
-            KeyCode::Char('l') | KeyCode::Right => {
+            KeyCode::Right if self.view_mode == ViewMode::Workbench => {
                 if !self.selected_neighbors().is_empty() {
                     self.focus = PaneFocus::Neighborhood;
                     self.clamp_neighbor_index();
@@ -241,12 +325,194 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => self.move_cursor(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_cursor(-1),
             KeyCode::Enter => {
-                if self.focus == PaneFocus::Neighborhood {
+                if self.view_mode == ViewMode::Workbench && self.focus == PaneFocus::Neighborhood {
                     self.jump_to_selected_neighbor();
                 }
             }
             KeyCode::Char(' ') => self.toggle_selected_done(),
             _ => {}
+        }
+    }
+
+    fn toggle_view_mode(&mut self) {
+        match self.view_mode {
+            ViewMode::Workbench => {
+                if let Some(id) = self.selected_id().cloned()
+                    && let Ok(rows) = build_tree_rows(self)
+                    && let Some(pos) = rows.iter().position(|r| r.task_id == id)
+                {
+                    self.tree_index = pos;
+                }
+                self.view_mode = ViewMode::Tree;
+                self.clamp_tree_index();
+            }
+            ViewMode::Tree => {
+                if let Some(id) = self.selected_tree_id().cloned() {
+                    if !self.visible_ids.contains(&id) {
+                        self.filter = FilterMode::All;
+                        self.search_query.clear();
+                    }
+                    self.refresh_visible(Some(&id));
+                }
+                self.view_mode = ViewMode::Workbench;
+            }
+        }
+    }
+
+    fn open_link_modal(&mut self, adding: bool) {
+        if let Some(id) = self.active_selected_id() {
+            self.modal = Some(ModalState::Link(LinkModal::new(adding, id)));
+            self.status_message = None;
+        }
+    }
+
+    fn handle_modal_key(&mut self, key: KeyEvent) {
+        let Some(mut modal) = self.modal.take() else {
+            return;
+        };
+        let keep_open = match &mut modal {
+            ModalState::Add(add_modal) => self.handle_add_modal_key(add_modal, key),
+            ModalState::Link(link_modal) => self.handle_link_modal_key(link_modal, key),
+        };
+        if keep_open {
+            self.modal = Some(modal);
+        }
+    }
+
+    fn handle_add_modal_key(&mut self, modal: &mut AddModal, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Esc => return false,
+            KeyCode::Tab => modal.active_field = modal.active_field.next(),
+            KeyCode::BackTab => modal.active_field = modal.active_field.prev(),
+            KeyCode::Enter => {
+                let title = modal.title.trim().to_owned();
+                if title.is_empty() {
+                    modal.error = Some("title cannot be empty".to_owned());
+                    return true;
+                }
+                let mut task = Task::new(title, modal.priority);
+                task.description = modal.description.trim().to_owned();
+                let new_id = task.id.clone();
+                if let Err(err) = self.store.save_task(&task) {
+                    modal.error = Some(err.to_string());
+                    return true;
+                }
+                self.graph.insert_task(task);
+                self.filter = FilterMode::All;
+                self.search_query.clear();
+                self.refresh_visible(Some(&new_id));
+                self.status_message = Some(format!("Added {new_id}"));
+                return false;
+            }
+            KeyCode::Left if modal.active_field == AddField::Priority => {
+                modal.priority = cycle_priority(modal.priority, false);
+            }
+            KeyCode::Right if modal.active_field == AddField::Priority => {
+                modal.priority = cycle_priority(modal.priority, true);
+            }
+            KeyCode::Backspace => match modal.active_field {
+                AddField::Title => {
+                    modal.title.pop();
+                }
+                AddField::Description => {
+                    modal.description.pop();
+                }
+                AddField::Priority => {}
+            },
+            KeyCode::Char(c) => {
+                modal.error = None;
+                match modal.active_field {
+                    AddField::Title => modal.title.push(c),
+                    AddField::Description => modal.description.push(c),
+                    AddField::Priority => {
+                        if c == ' ' || c == 'l' {
+                            modal.priority = cycle_priority(modal.priority, true);
+                        } else if c == 'h' {
+                            modal.priority = cycle_priority(modal.priority, false);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn handle_link_modal_key(&mut self, modal: &mut LinkModal, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Esc => return false,
+            KeyCode::Tab => {
+                modal.relation = modal.relation.next();
+                modal.selected = 0;
+                modal.error = None;
+            }
+            KeyCode::Up => {
+                modal.selected = modal.selected.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                let count = self.link_candidates(modal).len();
+                if count > 0 {
+                    modal.selected = (modal.selected + 1).min(count - 1);
+                }
+            }
+            KeyCode::Backspace => {
+                modal.filter.pop();
+                modal.selected = 0;
+                modal.error = None;
+            }
+            KeyCode::Enter => {
+                let candidates = self.link_candidates(modal);
+                let Some(target_id) = candidates.get(modal.selected).cloned() else {
+                    modal.error = Some("no matching task selected".to_owned());
+                    return true;
+                };
+                return self.apply_link_modal(modal, &target_id);
+            }
+            KeyCode::Char(c) => {
+                modal.filter.push(c);
+                modal.selected = 0;
+                modal.error = None;
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn apply_link_modal(&mut self, modal: &mut LinkModal, target_id: &TaskId) -> bool {
+        let src = modal.source_id.clone();
+        let outcome = match (modal.adding, modal.relation) {
+            (true, LinkRelation::DependsOn) => self.graph.add_dependency(&src, target_id),
+            (false, LinkRelation::DependsOn) => self.graph.remove_dependency(&src, target_id),
+            (true, LinkRelation::Blocks) => self.graph.add_dependency(target_id, &src),
+            (false, LinkRelation::Blocks) => self.graph.remove_dependency(target_id, &src),
+            (true, LinkRelation::Related) => self.graph.add_related(&src, target_id),
+            (false, LinkRelation::Related) => self.graph.remove_related(&src, target_id),
+        };
+
+        match outcome {
+            Ok(changed) => {
+                if changed {
+                    let to_save: Vec<TaskId> = match modal.relation {
+                        LinkRelation::DependsOn => vec![src.clone()],
+                        LinkRelation::Blocks => vec![target_id.clone()],
+                        LinkRelation::Related => vec![src.clone(), target_id.clone()],
+                    };
+                    if let Err(err) = self.store.save_tasks(&self.graph, &to_save) {
+                        modal.error = Some(err.to_string());
+                        return true;
+                    }
+                    self.refresh_visible(Some(&src));
+                    let verb = if modal.adding { "Linked" } else { "Unlinked" };
+                    self.status_message = Some(format!("{verb} {src} / {target_id}"));
+                } else {
+                    self.status_message = Some("No link changes".to_owned());
+                }
+                false
+            }
+            Err(err) => {
+                modal.error = Some(err.to_string());
+                true
+            }
         }
     }
 
@@ -273,6 +539,17 @@ impl App {
     }
 
     fn move_cursor(&mut self, delta: isize) {
+        if self.view_mode == ViewMode::Tree {
+            let len = build_tree_rows(self).map(|r| r.len()).unwrap_or(0) as isize;
+            if len == 0 {
+                self.tree_index = 0;
+                return;
+            }
+            let curr = self.tree_index as isize;
+            self.tree_index = (curr + delta).clamp(0, len - 1) as usize;
+            return;
+        }
+
         match self.focus {
             PaneFocus::TaskList => {
                 if self.visible_ids.is_empty() {
@@ -309,6 +586,15 @@ impl App {
         }
     }
 
+    fn clamp_tree_index(&mut self) {
+        let len = build_tree_rows(self).map(|r| r.len()).unwrap_or(0);
+        if len == 0 {
+            self.tree_index = 0;
+        } else if self.tree_index >= len {
+            self.tree_index = len - 1;
+        }
+    }
+
     fn jump_to_selected_neighbor(&mut self) {
         let neighbors = self.selected_neighbors();
         let Some(entry) = neighbors.get(self.neighbor_index) else {
@@ -326,7 +612,7 @@ impl App {
     }
 
     fn toggle_selected_done(&mut self) {
-        let Some(id) = self.selected_id().cloned() else {
+        let Some(id) = self.active_selected_id() else {
             return;
         };
         let Some(current_status) = self.graph.get(&id).map(|t| t.status) else {
@@ -449,7 +735,7 @@ mod tests {
         app.refresh_visible(Some(&id1));
 
         // Focus neighborhood and jump to `id2` (Unlocks).
-        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Right));
         assert_eq!(app.focus, PaneFocus::Neighborhood);
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.focus, PaneFocus::TaskList);
@@ -460,5 +746,73 @@ mod tests {
         app.handle_key(key(KeyCode::Char(' ')));
         assert_eq!(app.graph.get(&id1).unwrap().status, Status::Done);
         assert!(app.graph.is_ready(&id2));
+    }
+
+    #[test]
+    fn tab_toggles_layered_tree_view_and_add_modal_creates_task() {
+        let tmp = TempDir::new("tree-add");
+        let store = TaskStore::init_at(&tmp.0).unwrap();
+
+        let t1 = Task::new("Layer zero", Priority::High);
+        let mut t2 = Task::new("Layer one", Priority::Medium);
+        t2.depends_on.insert(t1.id.clone());
+        store.save_task(&t1).unwrap();
+        store.save_task(&t2).unwrap();
+
+        let graph = TaskGraph::from_tasks([t1, t2]);
+        let mut app = App::new(store, graph);
+
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.view_mode, ViewMode::Tree);
+        let rows = build_tree_rows(&app).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].layer, 0);
+        assert_eq!(rows[1].layer, 1);
+
+        // Quick-add modal
+        app.handle_key(key(KeyCode::Char('a')));
+        assert!(matches!(app.modal, Some(ModalState::Add(_))));
+        for ch in "New task".chars() {
+            app.handle_key(key(KeyCode::Char(ch)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.modal.is_none());
+        assert_eq!(app.graph.len(), 3);
+    }
+
+    #[test]
+    fn link_modal_rejects_cycles_with_live_error_and_unlinks() {
+        let tmp = TempDir::new("link-modal");
+        let store = TaskStore::init_at(&tmp.0).unwrap();
+
+        let t1 = Task::new("Alpha", Priority::High);
+        let mut t2 = Task::new("Beta", Priority::Medium);
+        t2.depends_on.insert(t1.id.clone());
+        let id1 = t1.id.clone();
+        let id2 = t2.id.clone();
+        store.save_task(&t1).unwrap();
+        store.save_task(&t2).unwrap();
+
+        let graph = TaskGraph::from_tasks([t1, t2]);
+        let mut app = App::new(store, graph);
+        app.refresh_visible(Some(&id1));
+
+        // Try linking `id1 depends_on id2`, which creates a cycle.
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Enter));
+        match &app.modal {
+            Some(ModalState::Link(m)) => {
+                assert!(m.error.as_ref().is_some_and(|e| e.contains("cycle")));
+            }
+            other => panic!("expected Link modal staying open on cycle, got {other:?}"),
+        }
+        app.handle_key(key(KeyCode::Esc));
+
+        // Unlink `id2 depends_on id1`.
+        app.refresh_visible(Some(&id2));
+        app.handle_key(key(KeyCode::Char('u')));
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.modal.is_none());
+        assert!(!app.graph.get(&id2).unwrap().depends_on.contains(&id1));
     }
 }

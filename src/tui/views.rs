@@ -5,9 +5,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::model::{Priority, Status, Task};
-use super::app::{App, FilterMode, NeighborKind, PaneFocus};
+use super::app::{App, FilterMode, NeighborKind, PaneFocus, ViewMode};
+use super::{modals, tree};
 
-/// Renders the 2-pane TUI workbench.
+/// Renders the active TUI view (Workbench or Layered Tree) and any open modal.
 pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -19,8 +20,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .split(frame.area());
 
     render_header(frame, app, chunks[0]);
-    render_workbench(frame, app, chunks[1]);
+    match app.view_mode {
+        ViewMode::Workbench => render_workbench(frame, app, chunks[1]),
+        ViewMode::Tree => tree::render_tree_view(frame, app, chunks[1]),
+    }
     render_footer(frame, app, chunks[2]);
+
+    if let Some(modal) = &app.modal {
+        modals::render_modal(frame, app, modal);
+    }
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
@@ -37,6 +45,11 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         .filter(|t| t.status == Status::Done)
         .count();
 
+    let mode_label = match app.view_mode {
+        ViewMode::Workbench => "Workbench",
+        ViewMode::Tree => "Tree",
+    };
+
     let mut spans = vec![
         Span::styled(
             " depenta ",
@@ -45,23 +58,30 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
                 .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  "),
+        Span::styled(
+            format!(" [{mode_label}] "),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
     ];
 
-    for mode in [
-        FilterMode::All,
-        FilterMode::Ready,
-        FilterMode::Blocked,
-        FilterMode::Done,
-    ] {
-        let style = if app.filter == mode {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        spans.push(Span::styled(format!("[{}] ", mode.label()), style));
+    if app.view_mode == ViewMode::Workbench {
+        for mode in [
+            FilterMode::All,
+            FilterMode::Ready,
+            FilterMode::Blocked,
+            FilterMode::Done,
+        ] {
+            let style = if app.filter == mode {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            spans.push(Span::styled(format!("[{}] ", mode.label()), style));
+        }
     }
 
     spans.push(Span::styled(
@@ -178,6 +198,15 @@ fn render_detail_pane(frame: &mut Frame, app: &App, area: Rect) {
         ),
     ]));
 
+    let blocked_by = app.graph.blocked_by(&task.id);
+    if !blocked_by.is_empty() {
+        let blockers: Vec<&str> = blocked_by.iter().map(|t| t.id.as_str()).collect();
+        lines.push(Line::styled(
+            format!("blocked by: {}", blockers.join(", ")),
+            Style::default().fg(Color::Red),
+        ));
+    }
+
     if !task.description.is_empty() {
         lines.push(Line::raw(""));
         for desc_line in task.description.lines() {
@@ -231,6 +260,8 @@ fn render_detail_pane(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
+    let hints =
+        "Tab:view  a:add  l:link  u:unlink  e:edit  Space:done  f:filter  /:search  q:quit";
     let text = if app.searching {
         Line::from(vec![
             Span::styled(" Search: ", Style::default().fg(Color::Magenta)),
@@ -239,21 +270,15 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     } else if let Some(msg) = &app.status_message {
         Line::from(vec![
             Span::styled(format!(" {msg} "), Style::default().fg(Color::Green)),
-            Span::styled(
-                " | j/k:move  h/l:pane  Enter:jump  Space:done  f:filter  /:search  q:quit",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(format!("| {hints}"), Style::default().fg(Color::DarkGray)),
         ])
     } else {
-        Line::styled(
-            " j/k:move  h/l:pane  Enter:jump  Space:done  f:filter  /:search  q:quit",
-            Style::default().fg(Color::DarkGray),
-        )
+        Line::styled(format!(" {hints}"), Style::default().fg(Color::DarkGray))
     };
     frame.render_widget(Paragraph::new(text), area);
 }
 
-fn state_badge(app: &App, task: &Task) -> (&'static str, Color) {
+pub(super) fn state_badge(app: &App, task: &Task) -> (&'static str, Color) {
     if task.status == Status::Done {
         ("[x]", Color::Green)
     } else if app.graph.is_blocked(&task.id) {
@@ -265,7 +290,7 @@ fn state_badge(app: &App, task: &Task) -> (&'static str, Color) {
     }
 }
 
-fn priority_badge(priority: Priority) -> (&'static str, Color) {
+pub(super) fn priority_badge(priority: Priority) -> (&'static str, Color) {
     match priority {
         Priority::Critical => ("CRIT", Color::Red),
         Priority::High => ("HIGH", Color::LightRed),

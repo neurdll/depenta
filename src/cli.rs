@@ -682,13 +682,21 @@ mod tests {
 
     #[test]
     fn no_args_requests_tui_launch() {
-        let launch_tui = run_from_args(Vec::<OsString>::new()).unwrap();
+        let launch_tui = run_from_args([OsString::from("depenta")]).unwrap();
         assert!(launch_tui);
     }
 
     #[test]
     fn tui_subcommand_requests_tui_launch() {
-        let launch_tui = run_from_args([OsString::from("tui")]).unwrap();
+        let launch_tui =
+            run_from_args([OsString::from("depenta"), OsString::from("tui")]).unwrap();
         assert!(launch_tui);
+    }
+
+    #[test]
+    fn help_flag_exits_without_launching_tui() {
+        let launch_tui =
+            run_from_args([OsString::from("depenta"), OsString::from("--help")]).unwrap();
+        assert!(!launch_tui);
     }
 }

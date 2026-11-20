@@ -1,4 +1,6 @@
 pub mod app;
+pub mod modals;
+pub mod tree;
 pub mod views;
 
 use std::io::{self, Stdout};
@@ -12,6 +14,8 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::cli::edit_with_editor;
+use crate::model::{TaskId, now_epoch_secs};
 use crate::store::TaskStore;
 use app::App;
 
@@ -38,6 +42,22 @@ impl TerminalGuard {
             }
         }
     }
+
+    fn suspend_for_editor<F, R>(&mut self, f: F) -> io::Result<R>
+    where
+        F: FnOnce() -> R,
+    {
+        disable_raw_mode()?;
+        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
+        self.terminal.show_cursor()?;
+
+        let outcome = f();
+
+        enable_raw_mode()?;
+        execute!(self.terminal.backend_mut(), EnterAlternateScreen)?;
+        self.terminal.clear()?;
+        Ok(outcome)
+    }
 }
 
 impl Drop for TerminalGuard {
@@ -48,7 +68,7 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Launches the interactive 2-pane TUI workbench.
+/// Launches the interactive TUI workbench and layered dependency tree.
 pub fn run() -> Result<(), String> {
     let store = TaskStore::discover().map_err(|e| e.to_string())?;
     let graph = store.load_graph().map_err(|e| e.to_string())?;
@@ -70,8 +90,54 @@ pub fn run() -> Result<(), String> {
         {
             app.handle_key(key);
         }
+
+        if let Some(task_id) = app.pending_editor_task_id.take() {
+            run_external_editor(&mut guard, &mut app, &task_id)?;
+        }
     }
 
+    Ok(())
+}
+
+fn run_external_editor(
+    guard: &mut TerminalGuard,
+    app: &mut App,
+    task_id: &TaskId,
+) -> Result<(), String> {
+    let Some((title, description)) = app
+        .graph
+        .get(task_id)
+        .map(|t| (t.title.clone(), t.description.clone()))
+    else {
+        return Ok(());
+    };
+
+    let edit_result = guard
+        .suspend_for_editor(|| edit_with_editor(&title, &description))
+        .map_err(|e| format!("terminal suspend/resume failed: {e}"))?;
+
+    match edit_result {
+        Ok(Some((new_title, new_desc))) => {
+            if let Some(task) = app.graph.get_mut(task_id)
+                && (new_title != task.title || new_desc != task.description)
+            {
+                task.title = new_title;
+                task.description = new_desc;
+                task.updated_at = now_epoch_secs();
+                match app.store.save_task(task) {
+                    Ok(()) => {
+                        app.refresh_visible(Some(task_id));
+                        app.status_message = Some(format!("Edited {task_id}"));
+                    }
+                    Err(err) => app.status_message = Some(format!("Save error: {err}")),
+                }
+            } else {
+                app.status_message = Some("No changes".to_owned());
+            }
+        }
+        Ok(None) => {}
+        Err(err) => app.status_message = Some(format!("Editor error: {err}")),
+    }
     Ok(())
 }
 
