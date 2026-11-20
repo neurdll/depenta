@@ -1,7 +1,7 @@
 id: ISS-001
 title: "Add serde, serde_json, and lexopt dependencies and core Task model"
 parent_plan: "depenta-mvp"
-status: "todo"
+status: "done"
 
 # Dependency graph management
 depends_on: []
@@ -24,5 +24,5 @@ acceptance_criteria:
 
 github:
   issue_number: 1
-  pr_number: null
+  pr_number: 7
   labels: ["enhancement", "area/model"]

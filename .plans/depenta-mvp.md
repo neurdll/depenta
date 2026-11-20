@@ -11,7 +11,7 @@ Build a fast, project-local (`.depenta/`) task dependency manager with a CLI for
 - **Dependencies Rejected:** `petgraph`, `clap`, `uuid`, `chrono` (replaced by ~20 lines of `std` graph/hash/epoch-time code).
 
 ## Execution Graph
-- [ ] ISS-001: Add serde, serde_json, and lexopt dependencies and core Task model (no dependencies)
+- [x] ISS-001: Add serde, serde_json, and lexopt dependencies and core Task model (no dependencies)
 - [ ] ISS-002: Implement pure in-memory DAG and relation graph engine (depends on ISS-001)
 - [ ] ISS-003: Implement per-task .depenta/tasks/<hash>.json file store (depends on ISS-002)
 - [ ] ISS-004: Build lexopt CLI for init, task CRUD, linking, and graph queries (depends on ISS-003)
