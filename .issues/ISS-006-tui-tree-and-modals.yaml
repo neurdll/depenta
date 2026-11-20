@@ -1,7 +1,7 @@
 id: ISS-006
 title: "Add layered dependency tree view and interactive modals in TUI"
 parent_plan: "depenta-mvp"
-status: "todo"
+status: "done"
 
 # Dependency graph management
 depends_on: ["ISS-005"]
@@ -25,5 +25,5 @@ acceptance_criteria:
 
 github:
   issue_number: 6
-  pr_number: null
+  pr_number: 12
   labels: ["enhancement", "area/tui"]
