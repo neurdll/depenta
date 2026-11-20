@@ -24,6 +24,6 @@ acceptance_criteria:
   - "Edit keybinding (e) suspends TUI raw mode, opens $EDITOR for title/description editing, and cleanly restores the TUI on exit."
 
 github:
-  issue_number: null
+  issue_number: 6
   pr_number: null
   labels: ["enhancement", "area/tui"]

@@ -23,6 +23,6 @@ acceptance_criteria:
   - "Unit tests verify JSON roundtrip serialization and unique short hash generation."
 
 github:
-  issue_number: null
+  issue_number: 1
   pr_number: null
   labels: ["enhancement", "area/model"]

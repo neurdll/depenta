@@ -23,6 +23,6 @@ acceptance_criteria:
   - "Unit tests cover prefix resolution, cycle rejection with path, ready transitions, impact ranking, and topological layers."
 
 github:
-  issue_number: null
+  issue_number: 2
   pr_number: null
   labels: ["enhancement", "area/graph"]

@@ -24,6 +24,6 @@ acceptance_criteria:
   - "Right pane shows selected task description and neighborhood (Needs, Unlocks, Related) with keybindings to jump to a neighbor or toggle Done (Space)."
 
 github:
-  issue_number: null
+  issue_number: 5
   pr_number: null
   labels: ["enhancement", "area/tui"]

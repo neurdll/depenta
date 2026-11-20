@@ -23,6 +23,6 @@ acceptance_criteria:
   - "edit opens $EDITOR (fallback vi/nano) on a temp file to update title/description or applies inline flags."
 
 github:
-  issue_number: null
+  issue_number: 4
   pr_number: null
   labels: ["enhancement", "area/cli"]
