@@ -1,0 +1,29 @@
+id: ISS-005
+title: "Add TUI terminal lifecycle, app state, and 2-pane workbench"
+parent_plan: "depenta-mvp"
+status: "todo"
+
+# Dependency graph management
+depends_on: ["ISS-004"]
+blocks: ["ISS-006"]
+
+scope:
+  files_to_touch:
+    - "src/tui/mod.rs"
+    - "src/tui/app.rs"
+    - "src/tui/views.rs"
+    - "src/main.rs"
+  forbidden_changes:
+    - "Do not implement 2D node-and-arrow graph routing."
+    - "Do not add modal editors or layered tree view in this issue (reserved for ISS-006)."
+
+acceptance_criteria:
+  - "Running depenta with no arguments (or `depenta tui`) launches the TUI."
+  - "Terminal guard implements Drop to restore raw mode and leave alternate screen even on panic or error."
+  - "Left pane displays tasks with status/ready/blocked indicators and priority badges, supporting filter cycling (All/Ready/Blocked/Done) and search."
+  - "Right pane shows selected task description and neighborhood (Needs, Unlocks, Related) with keybindings to jump to a neighbor or toggle Done (Space)."
+
+github:
+  issue_number: null
+  pr_number: null
+  labels: ["enhancement", "area/tui"]

@@ -1,0 +1,28 @@
+id: ISS-001
+title: "Add serde, serde_json, and lexopt dependencies and core Task model"
+parent_plan: "depenta-mvp"
+status: "todo"
+
+# Dependency graph management
+depends_on: []
+blocks: ["ISS-002"]
+
+scope:
+  files_to_touch:
+    - "Cargo.toml"
+    - "src/model.rs"
+    - "src/main.rs"
+  forbidden_changes:
+    - "Do not add uuid, chrono, petgraph, or clap to Cargo.toml."
+    - "Do not implement graph algorithms or file I/O in model.rs."
+
+acceptance_criteria:
+  - "Cargo.toml includes serde (derive), serde_json, and lexopt only alongside existing ratatui/crossterm."
+  - "src/model.rs defines pure data types: TaskId, Status (Todo, InProgress, Done), Priority (Low, Medium, High, Critical), and Task (id, title, description, status, priority, depends_on, related, created_at, updated_at)."
+  - "Zero-dep short hex hash generator (e.g., 6-char FNV-1a over timestamp + counter + title) and epoch timestamp helper are implemented using std."
+  - "Unit tests verify JSON roundtrip serialization and unique short hash generation."
+
+github:
+  issue_number: null
+  pr_number: null
+  labels: ["enhancement", "area/model"]

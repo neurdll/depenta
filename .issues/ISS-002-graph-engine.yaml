@@ -1,0 +1,28 @@
+id: ISS-002
+title: "Implement pure in-memory DAG and relation graph engine"
+parent_plan: "depenta-mvp"
+status: "todo"
+
+# Dependency graph management
+depends_on: ["ISS-001"]
+blocks: ["ISS-003"]
+
+scope:
+  files_to_touch:
+    - "src/graph.rs"
+    - "src/main.rs"
+  forbidden_changes:
+    - "Do not add petgraph or any external graph crate."
+    - "Do not perform filesystem or terminal I/O inside graph.rs."
+
+acceptance_criteria:
+  - "TaskGraph indexes tasks by TaskId and maintains reverse adjacency sets for blocks/unlocks."
+  - "Prefix ID resolution supports exact match and unambiguous hash prefix matching, returning clear errors on missing or ambiguous prefixes."
+  - "Adding depends_on performs DFS cycle detection and returns the exact cycle path on rejection; adding related is symmetric and permits cycles."
+  - "Queries implemented: is_ready, ready_tasks (sorted by priority then downstream impact), blocked_by, unlocks, topo_sort (Kahn's), and layers (longest-path depth)."
+  - "Unit tests cover prefix resolution, cycle rejection with path, ready transitions, impact ranking, and topological layers."
+
+github:
+  issue_number: null
+  pr_number: null
+  labels: ["enhancement", "area/graph"]

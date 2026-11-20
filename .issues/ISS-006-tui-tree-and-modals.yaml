@@ -1,0 +1,29 @@
+id: ISS-006
+title: "Add layered dependency tree view and interactive modals in TUI"
+parent_plan: "depenta-mvp"
+status: "todo"
+
+# Dependency graph management
+depends_on: ["ISS-005"]
+blocks: []
+
+scope:
+  files_to_touch:
+    - "src/tui/tree.rs"
+    - "src/tui/modals.rs"
+    - "src/tui/app.rs"
+    - "src/tui/views.rs"
+    - "src/tui/mod.rs"
+  forbidden_changes:
+    - "Do not build a full-featured multi-line text editor inside ratatui; defer complex description edits to $EDITOR."
+
+acceptance_criteria:
+  - "Tab toggles between the 2-pane Workbench and a Layered Dependency Tree view powered by graph::layers()."
+  - "Quick-add modal (a) creates a task with title, priority, and optional short description and saves it to .depenta/."
+  - "Link/unlink modal (l/u) selects a target task and relation (depends_on/related), displaying live cycle-check errors if a cycle would be created."
+  - "Edit keybinding (e) suspends TUI raw mode, opens $EDITOR for title/description editing, and cleanly restores the TUI on exit."
+
+github:
+  issue_number: null
+  pr_number: null
+  labels: ["enhancement", "area/tui"]

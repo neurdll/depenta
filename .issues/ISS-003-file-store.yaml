@@ -1,0 +1,28 @@
+id: ISS-003
+title: "Implement per-task .depenta/tasks/<hash>.json file store"
+parent_plan: "depenta-mvp"
+status: "todo"
+
+# Dependency graph management
+depends_on: ["ISS-002"]
+blocks: ["ISS-004"]
+
+scope:
+  files_to_touch:
+    - "src/store.rs"
+    - "src/main.rs"
+  forbidden_changes:
+    - "Do not store all tasks in a single monolithic tasks.json file."
+    - "Do not introduce SQLite or async runtime dependencies."
+
+acceptance_criteria:
+  - "discover_root walks upward from current working directory to locate .depenta/."
+  - "init_store creates .depenta/tasks/ cleanly and is idempotent."
+  - "load_graph reads all .depenta/tasks/*.json files into a TaskGraph, surfacing corrupted files with file context."
+  - "save_task writes .depenta/tasks/<id>.json atomically via temp file + rename; delete_task removes the task file."
+  - "Unit tests using temporary directories validate init, load, atomic save, and delete."
+
+github:
+  issue_number: null
+  pr_number: null
+  labels: ["enhancement", "area/storage"]

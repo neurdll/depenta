@@ -1,0 +1,28 @@
+id: ISS-004
+title: "Build lexopt CLI for init, task CRUD, linking, and graph queries"
+parent_plan: "depenta-mvp"
+status: "todo"
+
+# Dependency graph management
+depends_on: ["ISS-003"]
+blocks: ["ISS-005"]
+
+scope:
+  files_to_touch:
+    - "src/cli.rs"
+    - "src/main.rs"
+  forbidden_changes:
+    - "Do not replace lexopt with clap or structopt."
+    - "Do not duplicate graph or storage logic inside cli.rs."
+
+acceptance_criteria:
+  - "Supports subcommands: init, add, link, unlink, done, status, ready, list, show, edit, rm, and help."
+  - "add supports --priority, --after (depends_on), --rel (related), and --desc."
+  - "link/unlink support --after, --before, and --rel using hash prefix resolution and persist updated tasks."
+  - "done marks a task Done and prints any tasks newly unblocked by that completion."
+  - "edit opens $EDITOR (fallback vi/nano) on a temp file to update title/description or applies inline flags."
+
+github:
+  issue_number: null
+  pr_number: null
+  labels: ["enhancement", "area/cli"]
