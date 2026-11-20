@@ -14,7 +14,7 @@ Build a fast, project-local (`.depenta/`) task dependency manager with a CLI for
 - [x] ISS-001: Add serde, serde_json, and lexopt dependencies and core Task model (no dependencies)
 - [x] ISS-002: Implement pure in-memory DAG and relation graph engine (depends on ISS-001)
 - [x] ISS-003: Implement per-task .depenta/tasks/<hash>.json file store (depends on ISS-002)
-- [ ] ISS-004: Build lexopt CLI for init, task CRUD, linking, and graph queries (depends on ISS-003)
+- [x] ISS-004: Build lexopt CLI for init, task CRUD, linking, and graph queries (depends on ISS-003)
 - [ ] ISS-005: Add TUI terminal lifecycle, app state, and 2-pane workbench (depends on ISS-004)
 - [ ] ISS-006: Add layered dependency tree view and interactive modals in TUI (depends on ISS-005)
 
