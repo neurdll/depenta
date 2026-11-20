@@ -1,7 +1,7 @@
 id: ISS-005
 title: "Add TUI terminal lifecycle, app state, and 2-pane workbench"
 parent_plan: "depenta-mvp"
-status: "todo"
+status: "done"
 
 # Dependency graph management
 depends_on: ["ISS-004"]
@@ -25,5 +25,5 @@ acceptance_criteria:
 
 github:
   issue_number: 5
-  pr_number: null
+  pr_number: 11
   labels: ["enhancement", "area/tui"]
