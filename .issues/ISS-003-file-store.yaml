@@ -1,7 +1,7 @@
 id: ISS-003
 title: "Implement per-task .depenta/tasks/<hash>.json file store"
 parent_plan: "depenta-mvp"
-status: "todo"
+status: "done"
 
 # Dependency graph management
 depends_on: ["ISS-002"]
@@ -24,5 +24,5 @@ acceptance_criteria:
 
 github:
   issue_number: 3
-  pr_number: null
+  pr_number: 9
   labels: ["enhancement", "area/storage"]
